@@ -81,4 +81,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:$room_version")
 
 
+    implementation("androidx.compose.material:material-icons-extended:1.4.3")
+
+
 }
