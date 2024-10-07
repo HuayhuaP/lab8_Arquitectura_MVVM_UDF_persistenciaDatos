@@ -1,6 +1,7 @@
 package com.example.lab8_datos
 
 import android.os.Bundle
+import android.text.format.DateFormat
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -57,6 +58,7 @@ import androidx.compose.material.icons.filled.Search
 
 
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.TextFieldValue
 
 
@@ -81,21 +83,34 @@ class MainActivity : ComponentActivity() {
 
                 // Mostrar la pantalla principal
                 TaskScreen(viewModel)
+
+                // Observar cambios en las tareas para programar notificaciones
+                LaunchedEffect(tasks) {
+                    tasks.forEach { task ->
+                        if (!task.isCompleted && task.dueDate != null) {
+                            WorkManager.getInstance(applicationContext).enqueue(TaskReminderWorker.createTaskReminderWork(task))
+                        }
+                    }
+                }
             }
         }
     }
-}
 
 @Composable
 fun TaskScreen(viewModel: TaskViewModel) {
     val tasks by viewModel.tasks.collectAsState()
     val filter by viewModel.filter.collectAsState()
-
     val searchQuery by viewModel.searchQuery.collectAsState()
-
+    val sortOrder by viewModel.sortOrder.collectAsState()
     val coroutineScope = rememberCoroutineScope()
     var newTaskDescription by remember { mutableStateOf("") }
-    var expanded by remember { mutableStateOf(false) }
+    var expandedFilter by remember { mutableStateOf(false) }
+    var expandedSort by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    var selectedDateTime by remember { mutableStateOf<Long?>(null) }
+
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -110,18 +125,46 @@ fun TaskScreen(viewModel: TaskViewModel) {
             modifier = Modifier.padding(bottom = 16.dp)
         )
 
-        // Campo de texto para nueva tarea
+        // Campo de texto para nueva tarea y selección de dueDate
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
-            TextField(
-                value = newTaskDescription,
-                onValueChange = { newTaskDescription = it },
-                label = { Text("Agregar una nueva tarea") },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(56.dp)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                TextField(
+                    value = newTaskDescription,
+                    onValueChange = { newTaskDescription = it },
+                    label = { Text("Agregar una nueva tarea") },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp),
+                    keyboardOptions = KeyboardOptions.Default.copy(
+                        imeAction = ImeAction.Done
+                    )
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = selectedDateTime?.let {
+                            DateFormat.format("dd/MM/yyyy HH:mm", it)
+                        } ?: "Sin fecha de vencimiento",
+                        modifier = Modifier.weight(1f)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Button(
+                        onClick = {
+                            // Mostrar DatePickerDialog
+                            showDatePicker = true
+                        },
+                        modifier = Modifier.height(36.dp)
+                    ) {
+                        Text("Seleccionar Fecha")
+                    }
+                }
+            }
 
             Spacer(modifier = Modifier.width(8.dp))
 
@@ -129,8 +172,9 @@ fun TaskScreen(viewModel: TaskViewModel) {
             Button(
                 onClick = {
                     if (newTaskDescription.isNotEmpty()) {
-                        viewModel.addTask(newTaskDescription)
+                        viewModel.addTask(newTaskDescription, selectedDateTime)
                         newTaskDescription = ""
+                        selectedDateTime = null
                     }
                 },
                 modifier = Modifier
@@ -141,7 +185,6 @@ fun TaskScreen(viewModel: TaskViewModel) {
         }
 
         Spacer(modifier = Modifier.height(16.dp))
-
 
         // Barra de búsqueda
         TextField(
@@ -158,49 +201,104 @@ fun TaskScreen(viewModel: TaskViewModel) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-
-
-
-
-        // Filtro de tareas
+        // Filtros y Ordenación
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.End,
+            horizontalArrangement = Arrangement.SpaceBetween,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Text(text = "Filtrar:")
-            Spacer(modifier = Modifier.width(8.dp))
-            IconButton(onClick = { expanded = true }) {
-                Icon(
-                    imageVector = Icons.Default.FilterList,
-                    contentDescription = "Filtrar tareas"
-                )
-            }
-            DropdownMenu(
-                expanded = expanded,
-                onDismissRequest = { expanded = false }
+            // Filtro de tareas
+            Row(
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                DropdownMenuItem(
-                    text = { Text("Todas") },
-                    onClick = {
-                        viewModel.setFilter("ALL")
-                        expanded = false
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Completadas") },
-                    onClick = {
-                        viewModel.setFilter("COMPLETED")
-                        expanded = false
-                    }
-                )
-                DropdownMenuItem(
-                    text = { Text("Pendientes") },
-                    onClick = {
-                        viewModel.setFilter("PENDING")
-                        expanded = false
-                    }
-                )
+                Text(text = "Filtrar:")
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = { expandedFilter = true }) {
+                    Icon(
+                        imageVector = Icons.Default.FilterList,
+                        contentDescription = "Filtrar tareas"
+                    )
+                }
+                DropdownMenu(
+                    expanded = expandedFilter,
+                    onDismissRequest = { expandedFilter = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Todas") },
+                        onClick = {
+                            viewModel.setFilter("ALL")
+                            expandedFilter = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Completadas") },
+                        onClick = {
+                            viewModel.setFilter("COMPLETED")
+                            expandedFilter = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Pendientes") },
+                        onClick = {
+                            viewModel.setFilter("PENDING")
+                            expandedFilter = false
+                        }
+                    )
+                }
+            }
+
+            // Ordenación de tareas
+            Row(
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = "Ordenar:")
+                Spacer(modifier = Modifier.width(8.dp))
+                IconButton(onClick = { expandedSort = true }) {
+                    Icon(
+                        imageVector = Icons.Default.Sort,
+                        contentDescription = "Ordenar tareas"
+                    )
+                }
+                DropdownMenu(
+                    expanded = expandedSort,
+                    onDismissRequest = { expandedSort = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Nombre Ascendente") },
+                        onClick = {
+                            viewModel.setSortOrder("NAME_ASC")
+                            expandedSort = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Nombre Descendente") },
+                        onClick = {
+                            viewModel.setSortOrder("NAME_DESC")
+                            expandedSort = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Fecha Ascendente") },
+                        onClick = {
+                            viewModel.setSortOrder("DATE_ASC")
+                            expandedSort = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Fecha Descendente") },
+                        onClick = {
+                            viewModel.setSortOrder("DATE_DESC")
+                            expandedSort = false
+                        }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Estado (Completadas primero)") },
+                        onClick = {
+                            viewModel.setSortOrder("STATUS")
+                            expandedSort = false
+                        }
+                    )
+                }
             }
         }
 
@@ -217,7 +315,9 @@ fun TaskScreen(viewModel: TaskViewModel) {
                     task = task,
                     onToggleCompletion = { viewModel.toggleTaskCompletion(task) },
                     onDeleteTask = { viewModel.deleteTask(task) },
-                    onEditTask = { newDescription -> viewModel.editTask(task, newDescription) }
+                    onEditTask = { newDescription, newDueDate ->
+                        viewModel.editTask(task, newDescription, newDueDate)
+                    }
                 )
             }
         }
@@ -236,6 +336,22 @@ fun TaskScreen(viewModel: TaskViewModel) {
     }
 }
 
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val name = "Recordatorios de Tareas"
+            val descriptionText = "Canal para recordatorios de tareas pendientes"
+            val importance = NotificationManager.IMPORTANCE_HIGH
+            val channel = NotificationChannel(TaskReminderWorker.CHANNEL_ID, name, importance).apply {
+                description = descriptionText
+            }
+
+            // Registrar el canal con el sistema
+            val notificationManager: NotificationManager =
+                getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+}
 
 @Composable
 fun TaskItem(

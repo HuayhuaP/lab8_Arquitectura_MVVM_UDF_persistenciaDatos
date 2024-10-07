@@ -83,5 +83,9 @@ dependencies {
 
     implementation("androidx.compose.material:material-icons-extended:1.4.3")
 
+    implementation("com.vanpra.compose-material-dialogs:datetime:0.8.1-rc")
+
+    implementation("androidx.work:work-runtime-ktx:2.7.1")
+
 
 }
